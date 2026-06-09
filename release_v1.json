@@ -1,0 +1,15 @@
+{
+  "publish_config": {
+    "name": "my_game_v1",
+    "chapters": [
+      "第一章：基础",
+      "第二章：机关"
+    ],
+    "skip_with_errors": true,
+    "include_warnings_in_readme": true,
+    "default_step_limit": null,
+    "min_difficulty": null,
+    "max_difficulty": null
+  },
+  "saved_at": "2026-06-09T12:43:25.860797"
+}

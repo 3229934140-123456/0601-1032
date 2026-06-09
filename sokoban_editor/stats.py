@@ -124,7 +124,9 @@ class StatsGenerator:
         stats_list: List[LevelStats],
         output_path: str,
         pack_name: str = "关卡包",
-        skip_with_errors: bool = False
+        skip_with_errors: bool = False,
+        include_warnings: bool = True,
+        release_diff: Optional[object] = None
     ) -> str:
         """按章节导出游戏使用的说明文件"""
         chapters = StatsGenerator.group_by_chapter(stats_list)
@@ -136,7 +138,10 @@ class StatsGenerator:
         publishable_count = sum(1 for s in stats_list if s.publishable)
         unpublishable = [s for s in stats_list if not s.publishable]
 
+        from datetime import datetime
         lines.append(f"# {pack_name} 说明文档")
+        lines.append("")
+        lines.append(f"*生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
         lines.append("")
         lines.append("## 概览")
         lines.append("")
@@ -151,6 +156,59 @@ class StatsGenerator:
         lines.append(f"- 警告数: {metrics.get('warning_count', 0)}")
         lines.append(f"- 缺少标题的关卡: {metrics.get('levels_without_title', 0)}")
         lines.append("")
+
+        if release_diff:
+            from .batch_edit import BatchEditor, ReleaseDiff
+            if isinstance(release_diff, ReleaseDiff):
+                total_changes = (len(release_diff.added) + len(release_diff.removed)
+                                 + len(release_diff.renamed) + len(release_diff.modified))
+                if total_changes > 0:
+                    lines.append("## 📝 发布变更记录")
+                    lines.append("")
+
+                    if release_diff.added:
+                        lines.append(f"### ✨ 新增关卡 ({len(release_diff.added)})")
+                        lines.append("")
+                        for name in release_diff.added:
+                            lines.append(f"- `{name}`")
+                        lines.append("")
+
+                    if release_diff.removed:
+                        lines.append(f"### 🗑️  移除关卡 ({len(release_diff.removed)})")
+                        lines.append("")
+                        for name in release_diff.removed:
+                            lines.append(f"- `{name}`")
+                        lines.append("")
+
+                    if release_diff.renamed:
+                        lines.append(f"### ✏️  重命名关卡 ({len(release_diff.renamed)})")
+                        lines.append("")
+                        lines.append("| 原名称 | 新名称 |")
+                        lines.append("|--------|--------|")
+                        for old, new in release_diff.renamed:
+                            lines.append(f"| `{old}` | `{new}` |")
+                        lines.append("")
+
+                    if release_diff.modified:
+                        lines.append(f"### 🔄 内容修改 ({len(release_diff.modified)})")
+                        lines.append("")
+                        for name in release_diff.modified:
+                            lines.append(f"- `{name}`")
+                        lines.append("")
+
+                    if release_diff.unchanged:
+                        lines.append(f"### ✅ 未变更 ({len(release_diff.unchanged)})")
+                        lines.append("")
+                        lines.append("以下关卡与上次发布完全一致:")
+                        lines.append("")
+                        for name in release_diff.unchanged:
+                            lines.append(f"- `{name}`")
+                        lines.append("")
+                else:
+                    lines.append("## 📝 发布变更记录")
+                    lines.append("")
+                    lines.append("与上次发布相比，无任何变更。")
+                    lines.append("")
 
         if unpublishable:
             lines.append("## 🚫 暂不可发布的关卡")

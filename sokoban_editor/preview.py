@@ -21,6 +21,8 @@ class TerminalPreview:
         "switch": "\033[94m",
         "empty": "\033[30m",
         "border": "\033[90m",
+        "error": "\033[41m\033[97m",
+        "warning": "\033[43m\033[30m",
     }
 
     TILE_DISPLAY = {
@@ -39,7 +41,13 @@ class TerminalPreview:
     }
 
     @staticmethod
-    def render(level: Level, use_color: bool = True, show_ids: bool = False) -> str:
+    def render(
+        level: Level,
+        use_color: bool = True,
+        show_ids: bool = False,
+        show_issues: bool = True,
+        show_bindings: bool = False
+    ) -> str:
         """渲染关卡到终端字符串"""
         lines: List[str] = []
 
@@ -50,6 +58,18 @@ class TerminalPreview:
         grid_lines = TerminalPreview._render_grid(level, use_color, show_ids)
         lines.extend(grid_lines)
 
+        if show_issues:
+            issues_section = TerminalPreview._render_issues(level, use_color)
+            if issues_section:
+                lines.append("")
+                lines.append(issues_section)
+
+        if show_bindings or level.switches or level.doors:
+            bindings_section = TerminalPreview._render_bindings_detailed(level, use_color)
+            if bindings_section:
+                lines.append("")
+                lines.append(bindings_section)
+
         legend = TerminalPreview._render_legend(use_color)
         if legend:
             lines.append("")
@@ -59,6 +79,109 @@ class TerminalPreview:
         if info:
             lines.append("")
             lines.append(info)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_issues(level: Level, use_color: bool) -> str:
+        """渲染叠放和越界问题"""
+        from .editor import LevelEditor
+
+        issues = LevelEditor.get_level_issues(level)
+        if not issues:
+            return ""
+
+        lines = ["⚠️  格子问题:"]
+        for pos, problems in issues:
+            problem_str = "、".join(problems)
+            if use_color:
+                lines.append(
+                    f"  {TerminalPreview.COLORS['error']}({pos.x},{pos.y}){TerminalPreview.COLORS['reset']} {problem_str}"
+                )
+            else:
+                lines.append(f"  ({pos.x},{pos.y}) {problem_str}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _render_bindings_detailed(level: Level, use_color: bool) -> str:
+        """详细渲染开关-门绑定关系，带位置和连线提示"""
+        if not level.switches and not level.doors:
+            return ""
+
+        lines = []
+
+        if level.switches:
+            lines.append("🔌 开关-门绑定关系:")
+            for switch in sorted(level.switches, key=lambda s: s.id):
+                switch_color = TerminalPreview.COLORS.get("switch", "")
+                reset = TerminalPreview.COLORS.get("reset", "") if use_color else ""
+
+                if switch.door_ids:
+                    door_infos = []
+                    for door_id in sorted(switch.door_ids):
+                        door = next((d for d in level.doors if d.id == door_id), None)
+                        if door:
+                            status = "开" if door.is_open else "关"
+                            if use_color:
+                                door_color = TerminalPreview.COLORS.get("door_open" if door.is_open else "door", "")
+                                door_infos.append(
+                                    f"门#{door_id}({door.position.x},{door.position.y})[{door_color}{status}{reset}]"
+                                )
+                            else:
+                                door_infos.append(f"门#{door_id}({door.position.x},{door.position.y})[{status}]")
+                        else:
+                            if use_color:
+                                door_infos.append(
+                                    f"{TerminalPreview.COLORS['error']}门#{door_id}(不存在!){reset}"
+                                )
+                            else:
+                                door_infos.append(f"门#{door_id}(不存在!)")
+
+                    if use_color:
+                        lines.append(
+                            f"  {switch_color}◆ 开关#{switch.id}{reset} "
+                            f"({switch.position.x},{switch.position.y}) "
+                            f"→ {' → '.join(door_infos)}"
+                        )
+                    else:
+                        lines.append(
+                            f"  开关#{switch.id}({switch.position.x},{switch.position.y}) "
+                            f"→ {' → '.join(door_infos)}"
+                        )
+                else:
+                    warn = TerminalPreview.COLORS.get("warning", "") if use_color else ""
+                    if use_color:
+                        lines.append(
+                            f"  {switch_color}◆ 开关#{switch.id}{reset} "
+                            f"({switch.position.x},{switch.position.y}) "
+                            f"→ {warn}[未绑定任何门]{reset}"
+                        )
+                    else:
+                        lines.append(
+                            f"  开关#{switch.id}({switch.position.x},{switch.position.y}) → [未绑定任何门]"
+                        )
+
+        unbound_doors = []
+        all_bound = set()
+        for s in level.switches:
+            all_bound.update(s.door_ids)
+        for door in level.doors:
+            if door.id not in all_bound:
+                unbound_doors.append(door)
+
+        if unbound_doors:
+            lines.append("")
+            lines.append("🚪 未被任何开关控制的门:")
+            for door in sorted(unbound_doors, key=lambda d: d.id):
+                status = "开" if door.is_open else "关"
+                if use_color:
+                    warn = TerminalPreview.COLORS.get("warning", "")
+                    reset = TerminalPreview.COLORS.get("reset", "")
+                    lines.append(
+                        f"  {warn}门#{door.id}({door.position.x},{door.position.y})[{status}] - 无法打开!{reset}"
+                    )
+                else:
+                    lines.append(f"  门#{door.id}({door.position.x},{door.position.y})[{status}] - 无法打开!")
 
         return "\n".join(lines)
 

@@ -12,7 +12,23 @@ from .validator import LevelValidator, ValidationIssue
 from .preview import TerminalPreview
 from .packer import LevelPacker, RenameResult, PackResult, RenameConflict
 from .stats import StatsGenerator
-from .editor import LevelEditor
+from .editor import LevelEditor, EditResult
+from .batch_edit import (
+    BatchEditor, BatchFilter, BatchResult, PublishConfig, ReleaseDiff
+)
+
+
+def _print_edit_result(result: EditResult):
+    """打印编辑结果"""
+    if result.success:
+        print(result.message)
+    else:
+        if result.position:
+            print(f"❌ [{result.position.x},{result.position.y}] {result.message}")
+        else:
+            print(f"❌ {result.message}")
+    for warning in result.warnings:
+        print(f"  ⚠️  {warning}")
 
 
 def cmd_new(args):
@@ -59,18 +75,16 @@ def cmd_new(args):
         for binding in args.bind_switch:
             parts = binding.split(":")
             if len(parts) < 2:
-                print(f"警告: 绑定格式错误 '{binding}'，应为 '开关ID:门ID1,门ID2'")
+                print(f"  ⚠️  绑定格式错误 '{binding}'，应为 '开关ID:门ID1,门ID2'")
                 continue
             try:
                 switch_id = int(parts[0])
                 door_ids = [int(d) for d in parts[1].split(",")]
-                level, ok = LevelEditor.bind_switch_to_doors(level, switch_id, door_ids)
-                if ok:
-                    print(f"已绑定开关 {switch_id} 到门: {door_ids}")
-                else:
-                    print(f"警告: 未找到开关 {switch_id}")
+                result = LevelEditor.bind_switch_to_doors(level, switch_id, door_ids)
+                _print_edit_result(result)
+                level = result.level
             except ValueError:
-                print(f"警告: 绑定格式错误 '{binding}'，ID 必须是数字")
+                print(f"  ⚠️  绑定格式错误 '{binding}'，ID 必须是数字")
 
     if not level.created_at:
         level.created_at = datetime.now().isoformat()
@@ -80,7 +94,9 @@ def cmd_new(args):
 
     if args.preview:
         print()
-        print(TerminalPreview.render(level, use_color=not args.no_color, show_ids=args.show_ids))
+        print(TerminalPreview.render(
+            level, use_color=not args.no_color, show_ids=args.show_ids
+        ))
 
     if args.check:
         print("\n验证结果:")
@@ -126,87 +142,90 @@ def cmd_edit(args):
         for coord in args.add_box:
             try:
                 x, y = map(int, coord.split(","))
-                level, box = LevelEditor.add_box(level, x, y)
-                print(f"已添加箱子 #{box.id} 于 ({x},{y})")
-                modified = True
-            except ValueError as e:
-                print(f"警告: {e}")
+                result = LevelEditor.add_box(level, x, y)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
+                    modified = True
+            except ValueError:
+                print(f"❌ 坐标格式错误 '{coord}'，应为 x,y")
 
     if args.remove_box:
         for coord in args.remove_box:
             try:
                 if "," in coord:
                     x, y = map(int, coord.split(","))
-                    level, ok = LevelEditor.remove_box(level, x, y)
+                    result = LevelEditor.remove_box(level, x, y)
                 else:
-                    box_id = int(coord)
-                    level, ok = LevelEditor.remove_box_by_id(level, box_id)
-                if ok:
-                    print(f"已移除箱子 {coord}")
+                    result = LevelEditor.remove_box_by_id(level, int(coord))
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
                     modified = True
-                else:
-                    print(f"警告: 未找到箱子 {coord}")
-            except ValueError as e:
-                print(f"警告: {e}")
+            except ValueError:
+                print(f"❌ 参数格式错误 '{coord}'")
 
     if args.add_target:
         for coord in args.add_target:
             try:
                 x, y = map(int, coord.split(","))
-                level, target = LevelEditor.add_target(level, x, y)
-                print(f"已添加目标点 #{target.id} 于 ({x},{y})")
-                modified = True
-            except ValueError as e:
-                print(f"警告: {e}")
+                result = LevelEditor.add_target(level, x, y)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
+                    modified = True
+            except ValueError:
+                print(f"❌ 坐标格式错误 '{coord}'，应为 x,y")
 
     if args.remove_target:
         for coord in args.remove_target:
             try:
                 if "," in coord:
                     x, y = map(int, coord.split(","))
-                    level, ok = LevelEditor.remove_target(level, x, y)
+                    result = LevelEditor.remove_target(level, x, y)
                 else:
-                    target_id = int(coord)
-                    level, ok = LevelEditor.remove_target_by_id(level, target_id)
-                if ok:
-                    print(f"已移除目标点 {coord}")
+                    result = LevelEditor.remove_target_by_id(level, int(coord))
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
                     modified = True
-                else:
-                    print(f"警告: 未找到目标点 {coord}")
-            except ValueError as e:
-                print(f"警告: {e}")
+            except ValueError:
+                print(f"❌ 参数格式错误 '{coord}'")
 
     if args.add_wall:
         for coord in args.add_wall:
             try:
                 x, y = map(int, coord.split(","))
-                level = LevelEditor.add_wall(level, x, y)
-                print(f"已添加墙于 ({x},{y})")
-                modified = True
-            except ValueError as e:
-                print(f"警告: {e}")
+                result = LevelEditor.add_wall(level, x, y)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
+                    modified = True
+            except ValueError:
+                print(f"❌ 坐标格式错误 '{coord}'，应为 x,y")
 
     if args.remove_wall:
         for coord in args.remove_wall:
             try:
                 x, y = map(int, coord.split(","))
-                level, ok = LevelEditor.remove_wall(level, x, y)
-                if ok:
-                    print(f"已移除墙于 ({x},{y})")
+                result = LevelEditor.remove_wall(level, x, y)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
                     modified = True
-                else:
-                    print(f"警告: 位置 ({x},{y}) 没有墙")
-            except ValueError as e:
-                print(f"警告: {e}")
+            except ValueError:
+                print(f"❌ 坐标格式错误 '{coord}'，应为 x,y")
 
     if args.set_player:
         try:
             x, y = map(int, args.set_player.split(","))
-            level = LevelEditor.set_player(level, x, y)
-            print(f"玩家位置已设置为 ({x},{y})")
-            modified = True
-        except ValueError as e:
-            print(f"警告: {e}")
+            result = LevelEditor.set_player(level, x, y)
+            level = result.level
+            _print_edit_result(result)
+            if result.success:
+                modified = True
+        except ValueError:
+            print(f"❌ 坐标格式错误 '{args.set_player}'，应为 x,y")
 
     if args.add_switch:
         for item in args.add_switch:
@@ -217,102 +236,130 @@ def cmd_edit(args):
                 door_ids = []
                 if len(parts) > 1 and parts[1]:
                     door_ids = [int(d) for d in parts[1].split(",")]
-                level, switch = LevelEditor.add_switch(level, x, y, door_ids=door_ids)
-                bind_info = f"，绑定门: {door_ids}" if door_ids else ""
-                print(f"已添加开关 #{switch.id} 于 ({x},{y}){bind_info}")
-                modified = True
-            except ValueError as e:
-                print(f"警告: {e}")
+                result = LevelEditor.add_switch(level, x, y, door_ids=door_ids)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
+                    modified = True
+            except ValueError:
+                print(f"❌ 参数格式错误 '{item}'")
 
     if args.remove_switch:
         for coord in args.remove_switch:
             try:
                 if "," in coord:
                     x, y = map(int, coord.split(","))
-                    level, ok = LevelEditor.remove_switch(level, x, y)
+                    result = LevelEditor.remove_switch(level, x, y)
                 else:
-                    switch_id = int(coord)
-                    level, ok = LevelEditor.remove_switch_by_id(level, switch_id)
-                if ok:
-                    print(f"已移除开关 {coord}")
+                    result = LevelEditor.remove_switch_by_id(level, int(coord))
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
                     modified = True
-                else:
-                    print(f"警告: 未找到开关 {coord}")
-            except ValueError as e:
-                print(f"警告: {e}")
+            except ValueError:
+                print(f"❌ 参数格式错误 '{coord}'")
 
     if args.add_door:
         for coord in args.add_door:
             try:
                 x, y = map(int, coord.split(","))
-                level, door = LevelEditor.add_door(level, x, y)
-                print(f"已添加门 #{door.id} 于 ({x},{y})")
-                modified = True
-            except ValueError as e:
-                print(f"警告: {e}")
+                result = LevelEditor.add_door(level, x, y)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
+                    modified = True
+            except ValueError:
+                print(f"❌ 坐标格式错误 '{coord}'，应为 x,y")
 
     if args.remove_door:
         for coord in args.remove_door:
             try:
                 if "," in coord:
                     x, y = map(int, coord.split(","))
-                    level, ok = LevelEditor.remove_door(level, x, y)
+                    result = LevelEditor.remove_door(level, x, y)
                 else:
-                    door_id = int(coord)
-                    level, ok = LevelEditor.remove_door_by_id(level, door_id)
-                if ok:
-                    print(f"已移除门 {coord}")
+                    result = LevelEditor.remove_door_by_id(level, int(coord))
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
                     modified = True
-                else:
-                    print(f"警告: 未找到门 {coord}")
-            except ValueError as e:
-                print(f"警告: {e}")
+            except ValueError:
+                print(f"❌ 参数格式错误 '{coord}'")
 
     if args.bind_switch:
         for binding in args.bind_switch:
             parts = binding.split(":")
             if len(parts) < 2:
-                print(f"警告: 绑定格式错误 '{binding}'，应为 '开关ID:门ID1,门ID2'")
+                print(f"❌ 绑定格式错误 '{binding}'，应为 '开关ID:门ID1,门ID2'")
                 continue
             try:
                 switch_id = int(parts[0])
                 door_ids = [int(d) for d in parts[1].split(",")]
-                level, ok = LevelEditor.bind_switch_to_doors(level, switch_id, door_ids)
-                if ok:
-                    print(f"已绑定开关 {switch_id} 到门: {door_ids}")
+                result = LevelEditor.bind_switch_to_doors(level, switch_id, door_ids)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
                     modified = True
-                else:
-                    print(f"警告: 未找到开关 {switch_id}")
             except ValueError:
-                print(f"警告: 绑定格式错误 '{binding}'，ID 必须是数字")
+                print(f"❌ 绑定格式错误 '{binding}'，ID 必须是数字")
+
+    if args.add_door_binding:
+        for binding in args.add_door_binding:
+            parts = binding.split(":")
+            if len(parts) < 2:
+                print(f"❌ 绑定格式错误 '{binding}'，应为 '开关ID:门ID'")
+                continue
+            try:
+                switch_id = int(parts[0])
+                door_id = int(parts[1])
+                result = LevelEditor.add_door_binding(level, switch_id, door_id)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
+                    modified = True
+            except ValueError:
+                print(f"❌ 绑定格式错误 '{binding}'，ID 必须是数字")
+
+    if args.remove_door_binding:
+        for binding in args.remove_door_binding:
+            parts = binding.split(":")
+            if len(parts) < 2:
+                print(f"❌ 解绑格式错误 '{binding}'，应为 '开关ID:门ID'")
+                continue
+            try:
+                switch_id = int(parts[0])
+                door_id = int(parts[1])
+                result = LevelEditor.remove_door_binding(level, switch_id, door_id)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
+                    modified = True
+            except ValueError:
+                print(f"❌ 解绑格式错误 '{binding}'，ID 必须是数字")
 
     if args.unbind_switch:
         for switch_id_str in args.unbind_switch:
             try:
                 switch_id = int(switch_id_str)
-                level, ok = LevelEditor.unbind_switch_doors(level, switch_id)
-                if ok:
-                    print(f"已解绑开关 {switch_id}")
+                result = LevelEditor.unbind_switch_doors(level, switch_id)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
                     modified = True
-                else:
-                    print(f"警告: 未找到开关 {switch_id}")
             except ValueError:
-                print(f"警告: 开关 ID 必须是数字: {switch_id_str}")
+                print(f"❌ 开关 ID 必须是数字: {switch_id_str}")
 
     if args.toggle_door:
         for door_id_str in args.toggle_door:
             try:
                 door_id = int(door_id_str)
-                level, ok = LevelEditor.toggle_door(level, door_id)
-                if ok:
-                    door = next((d for d in level.doors if d.id == door_id), None)
-                    status = "打开" if door and door.is_open else "关闭"
-                    print(f"门 {door_id} 状态: {status}")
+                result = LevelEditor.toggle_door(level, door_id)
+                level = result.level
+                _print_edit_result(result)
+                if result.success:
                     modified = True
-                else:
-                    print(f"警告: 未找到门 {door_id}")
             except ValueError:
-                print(f"警告: 门 ID 必须是数字: {door_id_str}")
+                print(f"❌ 门 ID 必须是数字: {door_id_str}")
 
     if args.rename:
         old_name = level.name
@@ -320,15 +367,14 @@ def cmd_edit(args):
         new_filepath = os.path.join(directory, f"{new_name}.json")
 
         if os.path.exists(new_filepath) and new_name != old_name:
-            print(f"错误: 目标名称已存在: {new_filepath}")
-            sys.exit(1)
-
-        level.name = new_name
-        if old_name != new_name:
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            print(f"已重命名: {old_name} -> {new_name}")
-            modified = True
+            print(f"❌ 目标名称已存在: {new_filepath}")
+        else:
+            level.name = new_name
+            if old_name != new_name:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                print(f"已重命名: {old_name} -> {new_name}")
+                modified = True
 
     if modified:
         level.save(directory)
@@ -341,7 +387,9 @@ def cmd_edit(args):
         print()
 
     if args.preview:
-        print(TerminalPreview.render(level, use_color=not args.no_color, show_ids=args.show_ids))
+        print(TerminalPreview.render(
+            level, use_color=not args.no_color, show_ids=args.show_ids
+        ))
 
     if args.check:
         print("\n验证结果:")
@@ -351,6 +399,94 @@ def cmd_edit(args):
                 print(f"  {issue}")
         else:
             print("  ✓ 所有检查通过")
+
+
+def cmd_batch_edit(args):
+    """batch-edit 命令 - 批量修改关卡元数据"""
+    directory = args.directory
+
+    if not os.path.isdir(directory):
+        print(f"错误: 目录不存在: {directory}")
+        sys.exit(1)
+
+    bf = BatchFilter()
+
+    if args.chapter:
+        bf.chapters = args.chapter.split(",")
+    if args.difficulty_min is not None:
+        bf.difficulty_min = args.difficulty_min
+    if args.difficulty_max is not None:
+        bf.difficulty_max = args.difficulty_max
+    if args.missing_title:
+        bf.missing_title_only = True
+    if args.has_errors:
+        bf.has_errors_only = True
+    if args.no_step_limit:
+        bf.no_step_limit_only = True
+    if args.level_names:
+        bf.level_names = args.level_names.split(",")
+
+    dry_run = not args.apply
+
+    if dry_run:
+        print("=== 批量编辑 (试运行) ===")
+    else:
+        print("=== 批量编辑 (执行) ===")
+
+    filter_parts = []
+    if bf.chapters:
+        filter_parts.append(f"章节={bf.chapters}")
+    if bf.difficulty_min is not None or bf.difficulty_max is not None:
+        filter_parts.append(
+            f"难度=[{bf.difficulty_min or '*'}, {bf.difficulty_max or '*'}]"
+        )
+    if bf.missing_title_only:
+        filter_parts.append("仅缺少标题的")
+    if bf.has_errors_only:
+        filter_parts.append("仅有错误的")
+    if bf.no_step_limit_only:
+        filter_parts.append("仅无步数限制的")
+    if filter_parts:
+        print(f"筛选条件: {' & '.join(filter_parts)}")
+
+    result: BatchResult = BatchEditor.batch_edit_metadata(
+        directory,
+        bf,
+        set_chapter=args.set_chapter,
+        set_title=args.set_title,
+        set_author=args.set_author,
+        set_hint=args.set_hint,
+        set_notes=args.set_notes,
+        set_step_limit=args.set_step_limit,
+        set_difficulty=args.set_difficulty,
+        difficulty_min=args.auto_diff_min,
+        difficulty_max=args.auto_diff_max,
+        default_step_limit=args.default_step_limit,
+        prepend_title=args.prepend_title,
+        append_title=args.append_title,
+        dry_run=dry_run
+    )
+
+    print(f"总关卡: {result.total}, 匹配条件: {result.matched}, "
+          f"已修改: {result.modified}, 跳过: {result.skipped}")
+    print()
+
+    for change in result.changes:
+        if change.changes:
+            status = "[试运行]" if dry_run else "[已修改]"
+            print(f"{status} {change.level_name}:")
+            for c in change.changes:
+                print(f"  - {c}")
+        elif change.skipped and args.verbose:
+            print(f"[跳过] {change.level_name}: {change.skip_reason}")
+
+    if result.errors:
+        print("\n错误:")
+        for err in result.errors:
+            print(f"  ❌ {err}")
+
+    if not dry_run:
+        print(f"\n✅ 已保存 {result.modified} 个关卡。stats/pack 可立即看到最新结果。")
 
 
 def cmd_check(args):
@@ -411,7 +547,9 @@ def cmd_preview(args):
     output = TerminalPreview.render(
         level,
         use_color=not args.no_color,
-        show_ids=args.show_ids
+        show_ids=args.show_ids,
+        show_issues=not args.hide_issues,
+        show_bindings=args.bindings
     )
     print(output)
 
@@ -440,13 +578,51 @@ def cmd_pack(args):
         print(f"错误: 目录不存在: {directory}")
         sys.exit(1)
 
+    config = None
+    if args.config:
+        config = BatchEditor.load_config(args.config)
+        if config:
+            print(f"已加载发布配置: {args.config}")
+            if config.name and not args.pack_name:
+                args.pack_name = config.name
+            if config.chapters and not args.chapter:
+                args.chapter = ",".join(config.chapters)
+            if config.skip_with_errors and not args.skip_errors:
+                args.skip_errors = True
+        else:
+            print(f"⚠️  未找到配置文件: {args.config}")
+
+    if args.save_config:
+        cfg = PublishConfig(
+            name=args.pack_name or "levelpack",
+            chapters=args.chapter.split(",") if args.chapter else None,
+            skip_with_errors=args.skip_errors,
+            include_warnings_in_readme=True,
+            default_step_limit=args.default_step_limit if hasattr(args, "default_step_limit") else None,
+        )
+        BatchEditor.save_config(args.save_config, cfg)
+        print(f"发布配置已保存: {args.save_config}")
+
+    if (args.pack_name or args.export_readme or args.skip_errors or args.flat
+            or args.output or args.compare_with or args.config) and not args.pack:
+        args.pack = True
+
+    release_diff = None
+    if args.compare_with:
+        print("\n--- 与上次发布对比 ---")
+        release_diff = BatchEditor.compare_releases(
+            args.compare_with, directory, config
+        )
+        print(BatchEditor.format_diff(release_diff))
+        print()
+
     if args.rename:
         print("批量重命名关卡...")
         result: RenameResult = LevelPacker.batch_rename(
             directory,
             pattern=args.pattern or "level_{index:03d}",
             start_index=args.start_index or 1,
-            chapter_filter=args.chapter,
+            chapter_filter=args.chapter.split(",") if args.chapter else None,
             dry_run=args.dry_run,
             force=args.force
         )
@@ -494,9 +670,10 @@ def cmd_pack(args):
             print("\n跳过的关卡:")
 
             skipped_by_chapter = {}
+            all_levels = LevelPacker.load_all_levels(directory)
             for level_name, reasons in pack_result.skipped_levels:
                 level = None
-                for lvl in LevelPacker.load_all_levels(directory):
+                for lvl in all_levels:
                     if lvl.name == level_name:
                         level = lvl
                         break
@@ -514,11 +691,15 @@ def cmd_pack(args):
         if args.export_readme:
             from .stats import StatsGenerator
             stats_list = StatsGenerator.analyze_directory(directory)
+            if skip_with_errors:
+                stats_list = [s for s in stats_list if s.publishable]
             readme_path = StatsGenerator.export_readme(
                 stats_list,
                 output_dir,
                 pack_name=pack_name,
-                skip_with_errors=skip_with_errors
+                skip_with_errors=skip_with_errors,
+                include_warnings=True,
+                release_diff=release_diff
             )
             print(f"\n说明文档已导出: {readme_path}")
 
@@ -539,6 +720,18 @@ def cmd_stats(args):
     if not stats_list:
         print("未找到关卡数据。")
         sys.exit(0)
+
+    release_diff = None
+    if args.compare_with:
+        if os.path.isdir(target):
+            release_diff = BatchEditor.compare_releases(args.compare_with, target)
+        print("\n--- 与上次发布对比 ---")
+        print(BatchEditor.format_diff(release_diff))
+        print()
+        if args.list_missing_titles or args.list_unpublishable or args.export_readme:
+            pass
+        else:
+            return
 
     if args.list_missing_titles:
         missing = StatsGenerator.list_missing_titles(stats_list)
@@ -571,7 +764,9 @@ def cmd_stats(args):
             stats_list,
             output_dir,
             pack_name=args.pack_name or "关卡包",
-            skip_with_errors=args.skip_errors
+            skip_with_errors=args.skip_errors,
+            include_warnings=True,
+            release_diff=release_diff
         )
         print(f"说明文档已导出: {output_file}")
         return
@@ -686,11 +881,15 @@ def build_parser():
     edit_parser.add_argument("--add-door", action="append", metavar="X,Y",
                              help="添加门，格式: x,y")
     edit_parser.add_argument("--remove-door", action="append", metavar="X,Y|ID",
-                             help="移除门，按坐标或ID")
+                             help="移除门(自动清理开关绑定)，按坐标或ID")
     edit_parser.add_argument("--toggle-door", action="append", metavar="ID",
                              help="切换门的开关状态")
     edit_parser.add_argument("--bind-switch", action="append", metavar="SID:DID1,DID2",
-                             help="绑定开关到门，格式: 开关ID:门ID1,门ID2")
+                             help="替换开关绑定(覆盖全部)，格式: 开关ID:门ID1,门ID2")
+    edit_parser.add_argument("--add-door-binding", action="append", metavar="SID:DID",
+                             help="追加单个门到开关绑定，格式: 开关ID:门ID")
+    edit_parser.add_argument("--remove-door-binding", action="append", metavar="SID:DID",
+                             help="从开关绑定中移除单个门，格式: 开关ID:门ID")
     edit_parser.add_argument("--unbind-switch", action="append", metavar="SID",
                              help="解绑开关的所有门连接")
 
@@ -699,6 +898,35 @@ def build_parser():
     edit_parser.add_argument("--show-ids", action="store_true", help="显示坐标编号")
     edit_parser.add_argument("--no-color", action="store_true", help="禁用彩色输出")
     edit_parser.set_defaults(func=cmd_edit)
+
+    batch_parser = subparsers.add_parser("batch-edit", help="批量修改多关卡元数据")
+    batch_parser.add_argument("directory", help="关卡目录")
+    batch_parser.add_argument("--apply", action="store_true", help="真正执行修改(默认试运行)")
+    batch_parser.add_argument("--verbose", "-v", action="store_true", help="显示跳过原因")
+
+    batch_filter = batch_parser.add_argument_group("筛选条件")
+    batch_filter.add_argument("--chapter", help="按章节筛选，逗号分隔")
+    batch_filter.add_argument("--difficulty-min", type=int, help="难度最小值")
+    batch_filter.add_argument("--difficulty-max", type=int, help="难度最大值")
+    batch_filter.add_argument("--missing-title", action="store_true", help="仅缺少标题的")
+    batch_filter.add_argument("--has-errors", action="store_true", help="仅有验证错误的")
+    batch_filter.add_argument("--no-step-limit", action="store_true", help="仅无步数限制的")
+    batch_filter.add_argument("--level-names", help="按关卡名筛选，逗号分隔")
+
+    batch_modify = batch_parser.add_argument_group("修改操作")
+    batch_modify.add_argument("--set-chapter", help="统一设置章节")
+    batch_modify.add_argument("--set-title", help="统一设置标题")
+    batch_modify.add_argument("--set-author", help="统一设置作者")
+    batch_modify.add_argument("--set-hint", help="统一设置提示")
+    batch_modify.add_argument("--set-notes", help="统一设置备注")
+    batch_modify.add_argument("--set-step-limit", type=int, help="统一设置步数限制")
+    batch_modify.add_argument("--set-difficulty", type=int, help="统一设置难度")
+    batch_modify.add_argument("--default-step-limit", type=int, help="给无步数限制的关卡设置默认值")
+    batch_modify.add_argument("--auto-diff-min", type=int, help="自动设置难度的最小值")
+    batch_modify.add_argument("--auto-diff-max", type=int, help="自动设置难度的最大值(取中间值)")
+    batch_modify.add_argument("--prepend-title", help="在标题前追加内容")
+    batch_modify.add_argument("--append-title", help="在标题后追加内容")
+    batch_parser.set_defaults(func=cmd_batch_edit)
 
     check_parser = subparsers.add_parser("check", help="检查关卡问题")
     check_parser.add_argument("target", help="关卡文件或目录路径")
@@ -711,15 +939,16 @@ def build_parser():
     preview_parser.add_argument("--no-color", action="store_true", help="禁用彩色输出")
     preview_parser.add_argument("--text", "-t", action="store_true", help="同时输出文本地图格式")
     preview_parser.add_argument("--bindings", "-b", action="store_true", help="显示开关门绑定关系")
+    preview_parser.add_argument("--hide-issues", action="store_true", help="隐藏叠放和越界问题")
     preview_parser.set_defaults(func=cmd_preview)
 
-    pack_parser = subparsers.add_parser("pack", help="批量处理关卡（重命名、打包）")
+    pack_parser = subparsers.add_parser("pack", help="批量处理关卡（重命名、打包、发布）")
     pack_parser.add_argument("directory", help="关卡目录")
     pack_parser.add_argument("--rename", "-r", action="store_true", help="批量重命名关卡")
     pack_parser.add_argument("--pattern", help="命名模式 (默认: level_{index:03d})")
     pack_parser.add_argument("--start-index", type=int, help="起始序号 (默认: 1)")
-    pack_parser.add_argument("--chapter", help="仅处理指定章节的关卡")
-    pack_parser.add_argument("--dry-run", action="store_true", help="试运行，不实际重命名")
+    pack_parser.add_argument("--chapter", help="仅处理指定章节的关卡，逗号分隔")
+    pack_parser.add_argument("--dry-run", action="store_true", help="试运行，不实际修改")
     pack_parser.add_argument("--force", "-f", action="store_true", help="强制覆盖冲突的文件")
     pack_parser.add_argument("--strict", action="store_true", help="发现冲突时返回非零退出码")
     pack_parser.add_argument("--pack", "-p", action="store_true", help="生成关卡包")
@@ -727,6 +956,12 @@ def build_parser():
     pack_parser.add_argument("--flat", action="store_true", help="不按章节分组")
     pack_parser.add_argument("--skip-errors", action="store_true", help="只打包没有 error 的关卡")
     pack_parser.add_argument("--export-readme", action="store_true", help="同时导出说明文档")
+    pack_parser.add_argument("--compare-with", metavar="LAST_PACK.json",
+                             help="与上次发布的关卡包对比变更")
+    pack_parser.add_argument("--config", metavar="CONFIG.json",
+                             help="加载发布配置文件")
+    pack_parser.add_argument("--save-config", metavar="CONFIG.json",
+                             help="保存当前参数为发布配置文件")
     pack_parser.add_argument("--output", "-o", help="输出目录 (默认: ./output)")
     pack_parser.set_defaults(func=cmd_pack)
 
@@ -736,6 +971,8 @@ def build_parser():
     stats_parser.add_argument("--list-unpublishable", action="store_true", help="列出暂不可发布的关卡")
     stats_parser.add_argument("--export-readme", action="store_true", help="按章节导出说明文档")
     stats_parser.add_argument("--skip-errors", action="store_true", help="文档中仅展示可发布关卡")
+    stats_parser.add_argument("--compare-with", metavar="LAST_PACK.json",
+                              help="与上次发布的关卡包对比变更")
     stats_parser.add_argument("--pack-name", help="关卡包名称（用于文档标题）")
     stats_parser.add_argument("--output", "-o", help="输出目录 (默认: ./output)")
     stats_parser.set_defaults(func=cmd_stats)

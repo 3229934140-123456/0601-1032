@@ -37,6 +37,28 @@ class LevelValidator:
         issues.extend(LevelValidator.check_unreachable_areas(level))
         issues.extend(LevelValidator.check_dead_spots(level))
         issues.extend(LevelValidator.check_switch_door_links(level))
+        issues.extend(LevelValidator.check_overlaps_and_oob(level))
+        return issues
+
+    @staticmethod
+    def check_overlaps_and_oob(level: Level) -> List[ValidationIssue]:
+        """检查格子叠放和越界问题"""
+        from .editor import LevelEditor
+
+        issues: List[ValidationIssue] = []
+        found = LevelEditor.get_level_issues(level)
+
+        for pos, problems in found:
+            for problem in problems:
+                severity = "error" if ("叠放" in problem or "越界" in problem) else "warning"
+                issues.append(ValidationIssue(
+                    level=level.name,
+                    type="格子冲突",
+                    severity=severity,
+                    message=f"位置 ({pos.x},{pos.y}): {problem}",
+                    positions=[pos]
+                ))
+
         return issues
 
     @staticmethod

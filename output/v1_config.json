@@ -1,0 +1,12 @@
+{
+  "publish_config": {
+    "name": "v1_pack",
+    "chapters": null,
+    "skip_with_errors": false,
+    "include_warnings_in_readme": true,
+    "default_step_limit": null,
+    "min_difficulty": null,
+    "max_difficulty": null
+  },
+  "saved_at": "2026-06-09T12:48:41.968321"
+}

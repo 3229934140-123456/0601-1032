@@ -205,9 +205,11 @@ class Level:
         )
         return level
 
-    def save(self, directory: str):
-        """保存关卡到文件"""
-        filepath = os.path.join(directory, f"{self.name}.json")
+    def save(self, filepath: str):
+        """保存关卡到文件（支持目录路径或完整文件路径）"""
+        if os.path.isdir(filepath) or (not filepath.endswith('.json') and not os.path.isfile(filepath)):
+            filepath = os.path.join(filepath, f"{self.name}.json")
+        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
 

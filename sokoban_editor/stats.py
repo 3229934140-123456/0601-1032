@@ -26,6 +26,8 @@ class LevelStats:
     walkable_area: int
     has_title: bool
     issues: List[ValidationIssue]
+    has_errors: bool = False
+    publishable: bool = True
 
 
 class StatsGenerator:
@@ -36,6 +38,7 @@ class StatsGenerator:
         """分析单个关卡"""
         walkable = LevelValidator._get_walkable_positions(level)
         issues = LevelValidator.validate(level)
+        has_errors = any(i.severity == "error" for i in issues)
 
         return LevelStats(
             name=level.name,
@@ -52,7 +55,9 @@ class StatsGenerator:
             area=level.width * level.height,
             walkable_area=len(walkable),
             has_title=bool(level.title and level.title.strip()),
-            issues=issues
+            issues=issues,
+            has_errors=has_errors,
+            publishable=not has_errors
         )
 
     @staticmethod
@@ -118,7 +123,8 @@ class StatsGenerator:
     def export_readme(
         stats_list: List[LevelStats],
         output_path: str,
-        pack_name: str = "关卡包"
+        pack_name: str = "关卡包",
+        skip_with_errors: bool = False
     ) -> str:
         """按章节导出游戏使用的说明文件"""
         chapters = StatsGenerator.group_by_chapter(stats_list)
@@ -127,11 +133,17 @@ class StatsGenerator:
 
         lines: List[str] = []
 
+        publishable_count = sum(1 for s in stats_list if s.publishable)
+        unpublishable = [s for s in stats_list if not s.publishable]
+
         lines.append(f"# {pack_name} 说明文档")
         lines.append("")
         lines.append("## 概览")
         lines.append("")
         lines.append(f"- 关卡总数: {metrics.get('total_levels', 0)}")
+        lines.append(f"- 可发布关卡: {publishable_count}")
+        if skip_with_errors:
+            lines.append(f"- 已跳过(有错误): {len(unpublishable)}")
         lines.append(f"- 章节数: {len(chapters)}")
         lines.append(f"- 箱子总数: {metrics.get('total_boxes', 0)}")
         lines.append(f"- 平均难度: {metrics.get('avg_difficulty', '未设置'):.1f}" if metrics.get('avg_difficulty') else "- 平均难度: 未设置")
@@ -140,12 +152,28 @@ class StatsGenerator:
         lines.append(f"- 缺少标题的关卡: {metrics.get('levels_without_title', 0)}")
         lines.append("")
 
+        if unpublishable:
+            lines.append("## 🚫 暂不可发布的关卡")
+            lines.append("")
+            lines.append("以下关卡存在严重错误，发布时将被跳过：")
+            lines.append("")
+            lines.append("| 章节 | 关卡名 | 标题 | 错误原因 |")
+            lines.append("|------|--------|------|----------|")
+            for stats in unpublishable:
+                chapter = stats.chapter or "未分类"
+                title = stats.title or "⚠️ 未设置"
+                errors = [i.message for i in stats.issues if i.severity == "error"]
+                error_str = "; ".join(errors) if errors else "未知错误"
+                lines.append(f"| {chapter} | {stats.name} | {title} | {error_str} |")
+            lines.append("")
+
         if missing_titles:
             lines.append("## ⚠️ 缺少标题的关卡")
             lines.append("")
             for stats in missing_titles:
                 chapter = stats.chapter or "未分类"
-                lines.append(f"- [{chapter}] {stats.name}")
+                status = " 🚫" if not stats.publishable else ""
+                lines.append(f"- [{chapter}] {stats.name}{status}")
             lines.append("")
 
         lines.append("## 章节详情")
@@ -153,25 +181,28 @@ class StatsGenerator:
 
         for chapter_name in sorted(chapters.keys()):
             chapter_stats = chapters[chapter_name]
+
+            if skip_with_errors:
+                chapter_stats = [s for s in chapter_stats if s.publishable]
+                if not chapter_stats:
+                    continue
+
             lines.append(f"### {chapter_name}")
             lines.append("")
             lines.append(f"本章节共 {len(chapter_stats)} 个关卡")
             lines.append("")
 
-            lines.append("| 序号 | 关卡名 | 标题 | 难度 | 箱子数 | 步数限制 | 提示 |")
-            lines.append("|------|--------|------|------|--------|----------|------|")
+            lines.append("| 序号 | 状态 | 关卡名 | 标题 | 难度 | 箱子数 | 步数限制 | 提示 |")
+            lines.append("|------|------|--------|------|------|--------|----------|------|")
 
             for idx, stats in enumerate(chapter_stats, 1):
                 title = stats.title or "⚠️ 未设置"
                 difficulty = str(stats.difficulty) if stats.difficulty is not None else "-"
                 step_limit = str(stats.step_limit) if stats.step_limit else "无"
-
-                hint_indicator = ""
-                for level in [s for s in stats_list if s.name == stats.name]:
-                    pass
+                status = "✅" if stats.publishable else "🚫"
 
                 lines.append(
-                    f"| {idx} | {stats.name} | {title} | {difficulty} | {stats.box_count} | {step_limit} | |"
+                    f"| {idx} | {status} | {stats.name} | {title} | {difficulty} | {stats.box_count} | {step_limit} | |"
                 )
 
             lines.append("")
@@ -180,8 +211,13 @@ class StatsGenerator:
 
             for stats in chapter_stats:
                 title = stats.title or stats.name
-                lines.append(f"#### {title} (`{stats.name}`)")
+                status_badge = " 🚫" if not stats.publishable else ""
+                lines.append(f"#### {title} (`{stats.name}`){status_badge}")
                 lines.append("")
+
+                if not stats.publishable:
+                    lines.append("> ⚠️ **注意**: 此关卡存在验证错误，暂不可发布")
+                    lines.append("")
 
                 level_info = []
                 level_info.append(f"- 尺寸: {stats.width}x{stats.height}")

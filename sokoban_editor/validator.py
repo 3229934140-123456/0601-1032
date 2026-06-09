@@ -269,6 +269,7 @@ class LevelValidator:
         issues: List[ValidationIssue] = []
 
         door_ids = {door.id for door in level.doors}
+        all_bound_door_ids: set = set()
 
         for switch in level.switches:
             invalid_doors = [did for did in switch.door_ids if did not in door_ids]
@@ -281,12 +282,34 @@ class LevelValidator:
                     positions=[switch.position]
                 ))
 
+            if not switch.door_ids:
+                issues.append(ValidationIssue(
+                    level=level.name,
+                    type="开关未绑定",
+                    severity="warning",
+                    message=f"开关 {switch.id} 没有绑定任何门",
+                    positions=[switch.position]
+                ))
+            else:
+                all_bound_door_ids.update(switch.door_ids)
+
+        unbound_doors = [door.id for door in level.doors if door.id not in all_bound_door_ids]
+        if unbound_doors:
+            door_positions = [d.position for d in level.doors if d.id in unbound_doors]
+            issues.append(ValidationIssue(
+                level=level.name,
+                type="门无开关联动",
+                severity="warning",
+                message=f"以下门没有任何开关联动: {unbound_doors}",
+                positions=door_positions
+            ))
+
         if level.switches and not level.doors:
             issues.append(ValidationIssue(
                 level=level.name,
                 type="配置警告",
                 severity="info",
-                message="有关卡但没有门"
+                message="有开关但没有门"
             ))
         elif level.doors and not level.switches:
             issues.append(ValidationIssue(
